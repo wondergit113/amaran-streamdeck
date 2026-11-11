@@ -45,7 +45,17 @@ export class BrightnessDial extends SingletonAction<BrightnessDialSettings> {
     // Coalesce the actual command: only the latest value is sent.
     coalescerFor(ev.action.id).run(async () => {
       try {
-        await setBrightness(settings, id, getLevelSync(id) ?? level);
+        // Capture this task's target instead of re-reading a mutable cache.
+        const sent = level;
+        const status = await setBrightness(settings, id, sent);
+        if (status && getLevelSync(id) === sent) {
+          // An older response must not overwrite a newer optimistic target.
+          setLevelSync(id, status.brightness);
+          settings.level = status.brightness;
+          settings.isOn = status.on;
+          await ev.action.setSettings(settings);
+          await this.render(ev.action, settings);
+        }
       } catch (err) {
         streamdeck.logger.warn(`brightness-dial send failed: ${err instanceof Error ? err.message : err}`);
         await ev.action.showAlert();

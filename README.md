@@ -28,9 +28,10 @@ deltas, and no state read-back:
 | POST | `/lights/:id/cct` | `{ "brightness": 0-100, "kelvin": <K>, "gm": 0 }` |
 | POST | `/lights/:id/hsi` | `{ "brightness": 0-100, "hue": 0-360, "saturation": 0-100 }` |
 
-Because the daemon never reports state, each action remembers its own
-on/brightness/kelvin in its Stream Deck settings and adjusts from there. (This
-matches `homebridge-amaran-lights/src/transports/httpTransport.ts`.)
+The plugin remembers on/brightness/kelvin in its settings. Toggle keys read
+Homebridge state before deciding which power command to send; brightness dials
+reconcile command responses only while they still match the latest target.
+See State-aware controls below for endpoint requirements and limitations.
 
 ## Prerequisites
 
@@ -95,15 +96,14 @@ The actions appear under the **Amaran Lights** category.
 ## Configuration
 
 - **Light ID** — the `id` of the light in your Homebridge/daemon config (e.g. `05010-ccdde1`).
-- **Server** — amaran BLE daemon base URL (default `http://127.0.0.1:2708`).
+- **Server** — Homebridge control server base URL (default `http://127.0.0.1:2709`).
 - **Token** — only if your daemon requires a bearer token.
 - **Mode / Color / Brightness / Step / Per tick** — action-specific behaviour.
 
 ## Notes
 
-- Since the daemon has no state read-back, the on/off and brightness/kelvin a
-  dial shows are what the **plugin** last sent — if you change a light elsewhere,
-  the next press/rotate re-asserts the plugin's remembered value.
+- Dial starting values still use the plugin's saved settings. Toggle keys read
+  Homebridge state before switching power, but do not poll in the background.
 - The daemon contract has no "all lights" or device-list endpoint, so the Light
   ID is entered manually per action.
 - Icons are simple SVGs in `imgs/`; replace with your own art before publishing.
@@ -113,3 +113,21 @@ The actions appear under the **Amaran Lights** category.
 ## License
 
 MIT
+
+## State-aware controls and regression checks
+
+Toggle keys read Homebridge's current cached state before switching power. If
+the state endpoint is unavailable, they show an alert rather than guessing.
+Explicit On and Off modes remain usable without state read-back. The icon
+refreshes from Homebridge when the key appears, with saved state as an offline
+display fallback. This requires Homebridge's `GET /lights/:id` endpoint; the
+direct daemon may not provide it. Homebridge's cached state is not a fresh BLE
+read and may not reflect changes made outside Homebridge.
+
+Brightness dial requests retain the newest target during rapid turns. Only a
+response matching the latest target updates the optimistic display. HTTP reads
+and writes time out after seven seconds so a stalled request cannot block the
+next queued dial target forever.
+
+Run `npm test`, `npm run typecheck`, and `npm run build` after installing the
+development dependencies. Tests use mocks and do not contact lights or services.

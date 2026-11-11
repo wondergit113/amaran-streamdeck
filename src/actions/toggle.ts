@@ -5,14 +5,14 @@ import streamdeck, {
   SingletonAction,
   WillAppearEvent,
 } from "@elgato/streamdeck";
-import { powerOff, powerOn, ConnectionSettings } from "../client";
+import { getLight, powerOff, powerOn, ConnectionSettings } from "../client";
 
 type ToggleMode = "toggle" | "on" | "off";
 
 interface ToggleSettings extends ConnectionSettings {
   lightId?: string;
   mode?: ToggleMode;
-  /** Cached on/off state (the daemon offers no read-back). */
+  /** Last reported on/off state, retained for display while offline. */
   isOn?: boolean;
 }
 
@@ -42,17 +42,23 @@ const ON_SVG = svgDataUri(panelSvg("#ffd60a"));
 @action({ UUID: "com.coachjamesgunaca.amaran-openapi.toggle" })
 export class ToggleLight extends SingletonAction<ToggleSettings> {
   override async onWillAppear(ev: WillAppearEvent<ToggleSettings>): Promise<void> {
-    if (ev.action.isKey()) {
-      await this.paint(ev.action, ev.payload.settings.isOn ?? false);
+    if (!ev.action.isKey()) return;
+    const settings = ev.payload.settings;
+    try {
+      settings.isOn = (await getLight(settings, settings.lightId ?? "")).on;
+      await ev.action.setSettings(settings);
+    } catch {
+      // Keep the last display while offline; toggles still require a fresh read.
     }
+    await this.paint(ev.action, settings.isOn ?? false);
   }
 
   override async onKeyDown(ev: KeyDownEvent<ToggleSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const mode: ToggleMode = settings.mode ?? "toggle";
-    const turnOn = mode === "on" ? true : mode === "off" ? false : !(settings.isOn ?? false);
-
     try {
+      const turnOn = mode === "on" ? true : mode === "off" ? false
+        : !(await getLight(settings, settings.lightId ?? "")).on;
       if (turnOn) {
         await powerOn(settings, settings.lightId ?? "");
       } else {
